@@ -114,6 +114,13 @@ export class HandlebarsPipe implements PipeTransform {
         let text = '' + value;
         const assets = options.data.root.assets || {};
 
+        let tempTokens: string[] = [];
+        const saveToken = (html: string) => {
+          const index = tempTokens.length;
+          tempTokens.push(html);
+          return `__PARSE_TOKEN_${index}__`;
+        };
+
         // =========================
         // [icon:number] & [icon]
         // =========================
@@ -129,17 +136,19 @@ export class HandlebarsPipe implements PipeTransform {
             const imageHtml = `<img src="${assetUrl}" class="parse-icon" />`;
 
             if (numberVal !== undefined) {
-              return `
+              return saveToken(`
           <span class="parse-text">
             <span class="parse-highlight">
               <span class="parse-num">${numberVal}</span>
               ${imageHtml}
             </span>
           </span>
-        `;
+        `);
             }
 
-            return `<span class="parse-highlight">${imageHtml}</span>`;
+            return saveToken(
+              `<span class="parse-highlight">${imageHtml}</span>`,
+            );
           },
         );
 
@@ -155,12 +164,12 @@ export class HandlebarsPipe implements PipeTransform {
           const regex = new RegExp(`\\b${cleanKey}:([0-9]+)\\b`, 'gi');
 
           text = text.replace(regex, (_, num) => {
-            return `
+            return saveToken(`
         <span class="parse-text">
           <span class="parse-num">${num}</span>
           <img src="${url}" class="parse-icon" />
         </span>
-      `;
+      `);
           });
         });
 
@@ -176,7 +185,7 @@ export class HandlebarsPipe implements PipeTransform {
           const regex = new RegExp(`\\b${cleanKey}\\b`, 'gi');
 
           text = text.replace(regex, (match) => {
-            return `<img src="${url}" class="parse-icon" />`;
+            return saveToken(`<img src="${url}" class="parse-icon" />`);
           });
         });
 
@@ -196,6 +205,14 @@ export class HandlebarsPipe implements PipeTransform {
             },
           );
           return prefix + content;
+        });
+
+        // Restore tokens
+        tempTokens.forEach((tokenHtml, index) => {
+          text = text.replace(
+            new RegExp(`__PARSE_TOKEN_${index}__`, 'g'),
+            tokenHtml,
+          );
         });
 
         return new Handlebars.SafeString(text);
