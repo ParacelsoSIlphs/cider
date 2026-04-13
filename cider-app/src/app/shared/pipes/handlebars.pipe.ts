@@ -5,10 +5,9 @@ import * as Handlebars from 'handlebars';
 
 @Pipe({
   name: 'handlebars',
-  standalone: false
+  standalone: false,
 })
 export class HandlebarsPipe implements PipeTransform {
-
   constructor(domSanitizer: DomSanitizer) {
     let self = this;
 
@@ -38,7 +37,7 @@ export class HandlebarsPipe implements PipeTransform {
           return '';
         }
       }
-      return (typeof current === 'string') ? current : '';
+      return typeof current === 'string' ? current : '';
     };
 
     /**
@@ -49,7 +48,7 @@ export class HandlebarsPipe implements PipeTransform {
         return '';
       }
       // If array is the assets object, use resolveAsset
-      // But 'index' helper is generic. 
+      // But 'index' helper is generic.
       // If we want to support nested assets lookups specifically here:
       if (value.includes('.')) {
         // It might be a path.
@@ -75,24 +74,133 @@ export class HandlebarsPipe implements PipeTransform {
       if (!value) {
         return value;
       }
-      return new Handlebars.SafeString(value.replace(/[{][{]([^} ]*)( [0-9]+)?[}][}]/g,
-        (match: boolean, assetPath: string, count: string) => {
-          const assetUrl = resolveAsset(options.data.root.assets, assetPath);
-          const image = `<img src="${assetUrl}" ${options.hash['width'] ? 'width=' + options.hash['width'] : ''}/>`;
-          const multiplier = parseInt(count);
-          return !assetUrl ? '' : multiplier ? image.repeat(multiplier) : image;
-        }));
-    }
+      return new Handlebars.SafeString(
+        value.replace(
+          /[{][{]([^} ]*)( [0-9]+)?[}][}]/g,
+          (match: boolean, assetPath: string, count: string) => {
+            const assetUrl = resolveAsset(options.data.root.assets, assetPath);
+            const image = `<img src="${assetUrl}" ${options.hash['width'] ? 'width=' + options.hash['width'] : ''}/>`;
+            const multiplier = parseInt(count);
+            return !assetUrl
+              ? ''
+              : multiplier
+                ? image.repeat(multiplier)
+                : image;
+          },
+        ),
+      );
+    };
 
     /**
      * {{compileImages card.description width=100}}
      * {{compile card.description width=100}}
-     * 
+     *
      * card.description: 'Convert two {{apple}} into one {{chip}}'
      * card.description: 'Convert {{apple 2}} into {{chip}}'
      */
     Handlebars.registerHelper('compileImages', compile);
     Handlebars.registerHelper('compile', compile);
+
+    /**
+     * {{parseText card.description}}
+     * Replaces [iconName:number] | iconName:number | [iconName] | iconName | [number] | number with custom HTML.
+     * Example: "[damage:1]" or "life:10"
+     */
+    Handlebars.registerHelper(
+      'parseText',
+      function (value: any, options: any): any {
+        if (!value) return value;
+
+        let text = '' + value;
+        const assets = options.data.root.assets || {};
+
+        // =========================
+        // [icon:number] & [icon]
+        // =========================
+        text = text.replace(
+          /\[([a-zA-Z0-9.-]+)(?::([0-9]+))?\]/g,
+          (match, assetPath, numberVal) => {
+            let assetUrl =
+              resolveAsset(assets, assetPath) ||
+              resolveAsset(assets, 'icon-' + assetPath);
+
+            if (!assetUrl) return match;
+
+            const imageHtml = `<img src="${assetUrl}" class="parse-icon" />`;
+
+            if (numberVal !== undefined) {
+              return `
+          <span class="parse-text">
+            <span class="parse-highlight">
+              <span class="parse-num">${numberVal}</span>
+              ${imageHtml}
+            </span>
+          </span>
+        `;
+            }
+
+            return `<span class="parse-highlight">${imageHtml}</span>`;
+          },
+        );
+
+        // =========================
+        // icon:number (WITHOUT [])
+        // =========================
+        Object.keys(assets).forEach((key) => {
+          const url = assets[key];
+          if (!url) return;
+
+          const cleanKey = key.replace(/^icon-/, '');
+
+          const regex = new RegExp(`\\b${cleanKey}:([0-9]+)\\b`, 'gi');
+
+          text = text.replace(regex, (_, num) => {
+            return `
+        <span class="parse-text">
+          <span class="parse-num">${num}</span>
+          <img src="${url}" class="parse-icon" />
+        </span>
+      `;
+          });
+        });
+
+        // =========================
+        // icon solo
+        // =========================
+        Object.keys(assets).forEach((key) => {
+          const url = assets[key];
+          if (!url) return;
+
+          const cleanKey = key.replace(/^icon-/, '');
+
+          const regex = new RegExp(`\\b${cleanKey}\\b`, 'gi');
+
+          text = text.replace(regex, (match) => {
+            return `<img src="${url}" class="parse-icon" />`;
+          });
+        });
+
+        // =========================
+        // [number] & number
+        // =========================
+        text = text.replace(/(^|>)([^<]+)/g, (match, prefix, content) => {
+          content = content.replace(
+            /\[([0-9]+)\]|\b([0-9]+)\b/g,
+            (m: string, bracketNum: string, soloNum: string) => {
+              if (bracketNum !== undefined) {
+                return `<span class="parse-highlight">${bracketNum}</span>`;
+              } else if (soloNum !== undefined) {
+                return `<span class="parse-num">${soloNum}</span>`;
+              }
+              return m;
+            },
+          );
+          return prefix + content;
+        });
+
+        return new Handlebars.SafeString(text);
+      },
+    );
 
     /***********************************
      * Control Helpers
@@ -105,8 +213,7 @@ export class HandlebarsPipe implements PipeTransform {
      */
     Handlebars.registerHelper('repeat', function (count, options) {
       var accum = '';
-      for (var i = 0; i < count; i++)
-        accum += options.fn(options.data.root);
+      for (var i = 0; i < count; i++) accum += options.fn(options.data.root);
       return accum;
     });
 
@@ -253,7 +360,6 @@ export class HandlebarsPipe implements PipeTransform {
     Handlebars.registerHelper('abs', function (a) {
       return Math.abs(a);
     });
-
   }
 
   transform(handlebars: string, assetUrls?: any): string {
@@ -278,5 +384,4 @@ export class HandlebarsPipe implements PipeTransform {
     }
     return css.replace(/\!important/g, '');
   }
-
 }
